@@ -1,11 +1,8 @@
 #include <Arduino.h>
-#include <RTTStream.h>
 #include <Adafruit_LIS3DH.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include "config.h"
-
-RTTStream rtt;
 
 static Adafruit_LIS3DH lis = Adafruit_LIS3DH();
 static bool sensorInitialized = false;
@@ -62,19 +59,22 @@ static void initSensor() {
             lis.setRange(LIS3DH_RANGE_2_G);
             lis.setDataRate(LIS3DH_DATARATE_100_HZ);
             sensorInitialized = true;
-            rtt.println("# LIS3DH OK (±2G, 100Hz)");
+            Serial.println("# LIS3DH OK (±2G, 100Hz)");
             return;
         }
         delay(200);
     }
     sensorInitialized = false;
-    rtt.println("# LIS3DH init FAILED");
+    Serial.println("# LIS3DH init FAILED");
 }
 
 void setup() {
+    Serial.begin(115200);
+    while (!Serial && millis() < 3000) {}
+
     initSensor();
     if (sensorInitialized) {
-        rtt.println("timestamp_ms,acc_x,acc_y,acc_z");
+        Serial.println("timestamp_ms,acc_x,acc_y,acc_z");
     }
 }
 
@@ -109,12 +109,12 @@ void loop() {
     // Output filtered CSV at 50 Hz
     if (lpfSeeded && (now - lastOutputMs >= kOutputIntervalMs)) {
         lastOutputMs = now;
-        rtt.print(now);
-        rtt.print(',');
-        rtt.print(g_fx, 4);
-        rtt.print(',');
-        rtt.print(g_fy, 4);
-        rtt.print(',');
-        rtt.println(g_fz, 4);
+        Serial.print(now);
+        Serial.print(',');
+        Serial.print(g_fx, 4);
+        Serial.print(',');
+        Serial.print(g_fy, 4);
+        Serial.print(',');
+        Serial.println(g_fz, 4);
     }
 }

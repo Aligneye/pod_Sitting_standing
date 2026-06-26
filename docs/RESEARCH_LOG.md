@@ -96,3 +96,40 @@ Building a professional-quality, repeatable data collection and visualization pi
 - Verify all four phases (STANDING, SIT_DOWN, SITTING, STAND_UP) appear in the data
 - Visually confirm that STANDING and SITTING produce distinct acceleration signatures
 - Determine which axis/axes carry the most discriminative signal
+
+---
+
+### 2026-06-26 — Hardware Migration: V5 → V3 (Seeed XIAO nRF52840 BLE)
+
+**What was implemented:**
+Migrated the research firmware from the custom nRF52832 PCB (Pod V5) to the Seeed XIAO nRF52840 BLE dev board.
+
+**Why:**
+The XIAO BLE is physically smaller and easier to attach to a participant during data collection sessions. It connects via USB-C for programming — no debug probe needed for flashing.
+
+**Files modified:**
+- `include/config.h` — I2C pin definitions changed
+- `platformio.ini` — Board target, upload protocol, and build flags changed
+- `upload_hooks.py` — No longer needed (USB-C native upload), file retained but unused
+
+**Design decisions:**
+- I2C SDA moved from P0.26 → P0.04 (hardware I2C on XIAO BLE D4 pin)
+- I2C SCL moved from P0.27 → P0.05 (hardware I2C on XIAO BLE D5 pin)
+- Removed `-DNRF52832_XXAA` build flag (nRF52840 board package handles its own defines)
+- Removed `upload_protocol = custom` and `extra_scripts = upload_hooks.py` (XIAO BLE uses built-in USB bootloader)
+- Board changed from `adafruit_feather_nrf52832` to `xiaoblenrf52840`
+
+**Assumptions:**
+- LIS3DH accelerometer is wired to D4 (SDA) and D5 (SCL) on the XIAO BLE
+- RTT Stream library is compatible with nRF52840 (same SEGGER RTT mechanism)
+- USB-C connection handles both programming and power
+
+**Observations:**
+- The nRF52840 has more RAM (256KB vs 64KB) and flash (1MB vs 512KB) — no constraints on firmware size
+- RTT still requires a debug probe for data capture (USB serial could be an alternative in future)
+
+**Remaining verification:**
+- Confirm firmware compiles for xiaoblenrf52840 target
+- Confirm I2C communication with LIS3DH works on D4/D5
+- Confirm RTT data stream still works via CMSIS-DAP probe (needed for capture.py)
+- Determine if USB Serial can replace RTT for simpler data capture workflow

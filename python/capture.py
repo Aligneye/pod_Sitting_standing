@@ -1,5 +1,5 @@
 """
-capture.py — Interactive protocol-guided data capture via RTT.
+capture.py — Interactive protocol-guided data capture via USB Serial.
 
 Guides the participant through sit/stand cycles, labels data automatically,
 and saves raw CSV + metadata JSON.
@@ -8,6 +8,7 @@ Usage:
     python capture.py
     python capture.py --cycles 30
     python capture.py --participant P02 --cycles 10
+    python capture.py --port COM5
 """
 
 import argparse
@@ -25,22 +26,21 @@ from config import (
     FIRMWARE_VERSION,
     HOLD_DURATION_SEC,
     PHASE_ORDER,
-    RTT_PORT,
     SAMPLING_RATE_HZ,
     TRANSITION_PHASES,
     WINDOW_OVERLAP,
     WINDOW_SIZE_SECONDS,
 )
-from utils import connect_rtt, parse_csv_line, read_rtt_lines, start_openocd
+from utils import connect_serial, parse_csv_line, read_serial_lines
 
 
 def beep():
     print("\a", end="", flush=True)
 
 
-def drain_samples(sock, buffer, writer, label, cycle_num, count_ref):
-    """Read all available RTT data and write to CSV. Returns updated buffer."""
-    buffer, lines = read_rtt_lines(sock, buffer)
+def drain_samples(ser, writer, label, count_ref):
+    """Read all available serial data and write to CSV."""
+    lines = read_serial_lines(ser)
     for line in lines:
         parsed = parse_csv_line(line)
         if parsed is None:
@@ -48,47 +48,47 @@ def drain_samples(sock, buffer, writer, label, cycle_num, count_ref):
         ts, ax, ay, az = parsed
         writer.writerow([ts, ax, ay, az, label])
         count_ref[0] += 1
-    return buffer
 
 
-def run_hold_phase(sock, buffer, writer, label, cycle_num, duration, count_ref):
+def run_hold_phase(ser, writer, label, duration, count_ref):
     """Timed hold phase — collect for exactly `duration` seconds."""
     start = time.time()
     while (time.time() - start) < duration:
-        buffer = drain_samples(sock, buffer, writer, label, cycle_num, count_ref)
+        drain_samples(ser, writer, label, count_ref)
         remaining = duration - (time.time() - start)
         print(f"\r     {remaining:.0f}s remaining | {count_ref[0]} samples total", end="")
+        time.sleep(0.01)
     print()
-    return buffer
 
 
-def run_transition_phase(sock, buffer, writer, label, cycle_num, count_ref):
+def run_transition_phase(ser, writer, label, count_ref):
     """Untimed transition — collect until participant presses ENTER."""
-    print("     Press ENTER when done.")
     import sys
-    import select
+
+    print("     Press ENTER when done.")
     if sys.platform == "win32":
         import msvcrt
         while True:
-            buffer = drain_samples(sock, buffer, writer, label, cycle_num, count_ref)
+            drain_samples(ser, writer, label, count_ref)
             print(f"\r     Recording... {count_ref[0]} samples | Press ENTER when done", end="")
             if msvcrt.kbhit():
                 key = msvcrt.getwch()
                 if key in ("\r", "\n"):
                     break
+            time.sleep(0.01)
     else:
+        import select
         while True:
-            buffer = drain_samples(sock, buffer, writer, label, cycle_num, count_ref)
+            drain_samples(ser, writer, label, count_ref)
             print(f"\r     Recording... {count_ref[0]} samples | Press ENTER when done", end="")
             ready, _, _ = select.select([sys.stdin], [], [], 0.01)
             if ready:
                 sys.stdin.readline()
                 break
     print()
-    return buffer
 
 
-def collect_session(sock, participant_id, session_id, cycles, output_dir, metadata_dir):
+def collect_session(ser, participant_id, session_id, cycles, output_dir, metadata_dir):
     """Run the full protocol and save CSV + metadata."""
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_filename = f"{session_id}_{timestamp_str}.csv"
@@ -96,7 +96,6 @@ def collect_session(sock, participant_id, session_id, cycles, output_dir, metada
     events = []
 
     sample_count = [0]
-    buffer = ""
     session_start = time.time()
 
     with open(csv_path, "w", newline="") as f:
@@ -128,16 +127,15 @@ def collect_session(sock, participant_id, session_id, cycles, output_dir, metada
                 })
 
                 if phase in TRANSITION_PHASES:
-                    buffer = run_transition_phase(sock, buffer, writer, phase, cycle, sample_count)
+                    run_transition_phase(ser, writer, phase, sample_count)
                 else:
-                    buffer = run_hold_phase(sock, buffer, writer, phase, cycle, HOLD_DURATION_SEC, sample_count)
+                    run_hold_phase(ser, writer, phase, HOLD_DURATION_SEC, sample_count)
 
             print(f"\n  Cycle {cycle}/{cycles} complete. ({sample_count[0]} samples)")
 
     session_end = time.time()
     duration_sec = session_end - session_start
 
-    # Save metadata
     metadata = {
         "participant_id": participant_id,
         "session_id": session_id,
@@ -180,7 +178,7 @@ def main():
     parser = argparse.ArgumentParser(description="Interactive sit/stand data capture")
     parser.add_argument("--participant", default=None, help="Participant ID (e.g. P01)")
     parser.add_argument("--cycles", type=int, default=DEFAULT_CYCLES, help="Number of cycles")
-    parser.add_argument("--port", type=int, default=RTT_PORT, help="RTT TCP port")
+    parser.add_argument("--port", default=None, help="Serial port (e.g. COM5). Auto-detects if omitted.")
     args = parser.parse_args()
 
     print("=" * 50)
@@ -195,7 +193,6 @@ def main():
         if not participant_id:
             participant_id = "P01"
 
-    # Determine session number
     participant_dir = DATASETS_RAW / participant_id
     participant_dir.mkdir(parents=True, exist_ok=True)
     existing = list(participant_dir.glob("*.csv"))
@@ -217,20 +214,17 @@ def main():
     print()
     input("  Press ENTER to begin...")
 
-    openocd_proc = start_openocd(args.port)
-    sock = connect_rtt(args.port)
+    ser = connect_serial(port=args.port)
 
     try:
         csv_path, meta_path, sample_count, duration_sec = collect_session(
-            sock, participant_id, session_id, args.cycles, participant_dir, DATASETS_METADATA
+            ser, participant_id, session_id, args.cycles, participant_dir, DATASETS_METADATA
         )
         print_summary(participant_id, args.cycles, sample_count, duration_sec, csv_path, meta_path)
     except KeyboardInterrupt:
         print("\n\n  Session interrupted by user.")
     finally:
-        sock.close()
-        openocd_proc.terminate()
-        openocd_proc.wait(timeout=5)
+        ser.close()
 
 
 if __name__ == "__main__":

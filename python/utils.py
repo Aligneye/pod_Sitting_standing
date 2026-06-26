@@ -1,103 +1,71 @@
 """
-utils.py — RTT connection, OpenOCD management, and parsing helpers.
+utils.py — Serial connection and parsing helpers.
 """
 
-import socket
-import subprocess
 import sys
 import time
-from pathlib import Path
+
+import serial
+import serial.tools.list_ports
 
 
-def find_openocd():
-    pio_home = Path.home() / ".platformio"
-    if sys.platform.startswith("win"):
-        candidate = pio_home / "packages" / "tool-openocd" / "bin" / "openocd.exe"
-    else:
-        candidate = pio_home / "packages" / "tool-openocd" / "bin" / "openocd"
-    if candidate.exists():
-        return str(candidate)
-    return "openocd"
-
-
-def find_openocd_scripts():
-    pio_home = Path.home() / ".platformio"
-    scripts = pio_home / "packages" / "tool-openocd" / "openocd" / "scripts"
-    if scripts.exists():
-        return str(scripts)
+def find_xiao_port():
+    """Auto-detect the XIAO nRF52840 serial port."""
+    ports = serial.tools.list_ports.comports()
+    for p in ports:
+        desc = (p.description or "").lower()
+        vid = p.vid
+        if vid == 0x239A or "nrf" in desc or "xiao" in desc:
+            return p.device
+    if ports:
+        return ports[-1].device
     return None
 
 
-def start_openocd(rtt_port=9090):
-    openocd = find_openocd()
-    scripts_dir = find_openocd_scripts()
-
-    cmd = [openocd]
-    if scripts_dir:
-        cmd += ["-s", scripts_dir]
-    cmd += [
-        "-f", "interface/cmsis-dap.cfg",
-        "-f", "target/nrf52.cfg",
-        "-c", "init",
-        "-c", 'rtt setup 0x20000000 0x10000 "SEGGER RTT"',
-        "-c", "rtt start",
-        "-c", f"rtt server start {rtt_port} 0",
-    ]
-
-    print(f"Starting OpenOCD (RTT on port {rtt_port})...")
-    kwargs = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
-    time.sleep(2)
-
-    if proc.poll() is not None:
-        stderr = proc.stderr.read().decode(errors="ignore")
-        print(f"OpenOCD failed to start:\n{stderr}")
+def connect_serial(port=None, baud=115200, retries=5):
+    """Connect to the device over USB serial. Returns a serial.Serial object."""
+    if not port:
+        port = find_xiao_port()
+    if not port:
+        print("Error: No serial port found. Connect the XIAO and try again.")
+        print("\nAvailable ports:")
+        for p in serial.tools.list_ports.comports():
+            print(f"  {p.device} — {p.description}")
         sys.exit(1)
 
-    return proc
-
-
-def connect_rtt(port=9090, retries=5):
     for attempt in range(retries):
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect(("localhost", port))
-            sock.settimeout(0.3)
-            print(f"Connected to RTT on port {port}")
-            return sock
-        except ConnectionRefusedError:
+            ser = serial.Serial(port, baud, timeout=0.3)
+            print(f"Connected to {port} at {baud} baud")
+            return ser
+        except serial.SerialException:
             if attempt < retries - 1:
                 time.sleep(1)
-    print("Error: Could not connect to RTT server")
+
+    print(f"Error: Could not open {port}")
     sys.exit(1)
 
 
-def read_rtt_lines(sock, buffer=""):
-    """Read from socket, return (remaining_buffer, list_of_complete_lines)."""
-    try:
-        data = sock.recv(4096).decode("utf-8", errors="ignore")
-    except socket.timeout:
-        return buffer, []
-
-    if not data:
-        return buffer, []
-
-    buffer += data
+def read_serial_lines(ser):
+    """Read available lines from serial. Returns list of complete lines."""
     lines = []
-    while "\n" in buffer:
-        line, buffer = buffer.split("\n", 1)
-        lines.append(line.strip())
-    return buffer, lines
+    while ser.in_waiting:
+        try:
+            raw = ser.readline()
+            line = raw.decode("utf-8", errors="ignore").strip()
+            if line:
+                lines.append(line)
+        except serial.SerialException:
+            break
+    return lines
 
 
 def parse_csv_line(line):
     """Parse a firmware CSV line. Returns (timestamp_ms, acc_x, acc_y, acc_z) or None."""
-    if not line or line.startswith("#") or line.startswith("timestamp"):
+    if not line or line.startswith("#") or line.startswith("timestamp") or line.startswith("BOOT"):
         return None
     parts = line.split(",")
-    if len(parts) != 4:
+    if len(parts) < 4:
         return None
     try:
         return int(parts[0]), float(parts[1]), float(parts[2]), float(parts[3])

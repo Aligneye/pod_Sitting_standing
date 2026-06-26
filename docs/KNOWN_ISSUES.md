@@ -38,6 +38,30 @@
 
 ---
 
+### ISSUE-004: upload_hooks.py is now unused after board migration
+
+- **Title:** upload_hooks.py remains in repo but is not referenced by platformio.ini
+- **Description:** After migrating to XIAO nRF52840 BLE (USB-C upload), the custom OpenOCD upload script is no longer needed. The file remains for reference but could confuse future contributors.
+- **Priority:** Low
+- **Status:** OPEN
+- **Date Discovered:** 2026-06-26
+- **Possible Cause:** Board migration removed the `extra_scripts` directive.
+- **Resolution:** Can be deleted or moved to `CONTEXT/` if no longer needed. Keeping for now in case V5 board is used again.
+
+---
+
+### ISSUE-005: RTT still requires debug probe despite USB-C availability
+
+- **Title:** Data capture still requires CMSIS-DAP probe for RTT even though board has USB-C
+- **Description:** The XIAO nRF52840 has native USB, so Serial output via USB-C is possible. Currently the firmware uses RTT which still requires a separate debug probe for data capture. This adds hardware complexity to the data collection setup.
+- **Priority:** Medium
+- **Status:** OPEN
+- **Date Discovered:** 2026-06-26
+- **Possible Cause:** Original design chose RTT because the nRF52832 had no USB. The nRF52840 does have USB.
+- **Resolution:** Consider switching from RTT to USB Serial (`Serial.print`) in a future iteration. This would eliminate the need for a debug probe during data collection and simplify capture.py to use pyserial instead of OpenOCD TCP.
+
+---
+
 ## Resolved Issues
 
 (None yet)
