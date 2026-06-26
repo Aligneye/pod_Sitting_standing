@@ -133,3 +133,62 @@ The XIAO BLE is physically smaller and easier to attach to a participant during 
 - Confirm I2C communication with LIS3DH works on D4/D5
 - Confirm RTT data stream still works via CMSIS-DAP probe (needed for capture.py)
 - Determine if USB Serial can replace RTT for simpler data capture workflow
+
+---
+
+### 2026-06-26 — RTT → USB Serial Migration
+
+**What was implemented:**
+Switched firmware output from SEGGER RTT to native USB Serial. Updated Python pipeline to use pyserial instead of OpenOCD TCP socket.
+
+**Why:**
+XIAO nRF52840 has native USB-C. RTT required a separate debug probe for data capture — unnecessary hardware complexity.
+
+**Files modified:**
+- `src/main.cpp` — Replaced all `rtt.print()` with `Serial.print()`, added `Serial.begin(115200)`
+- `platformio.ini` — Switched to Seeed platform, correct board ID, added TinyUSB
+- `python/utils.py` — Replaced RTT/OpenOCD helpers with pyserial-based connection
+- `python/capture.py` — Updated to use serial instead of socket
+- `python/config.py` — Replaced RTT_PORT with SERIAL_BAUD
+- `python/test_serial.py` — New quick-test script for verifying serial output
+- `docs/V3.md` — New hardware reference document
+
+**Critical lesson:**
+The XIAO nRF52840 requires Seeed's custom PlatformIO platform (GitHub repo), `-DUSE_TINYUSB` flag, and `Adafruit TinyUSB Library`. Without these, USB Serial silently fails.
+
+---
+
+### 2026-06-26 — Transition Consistency Analysis (25 cycles)
+
+**What was implemented:**
+Exploratory analysis of transition consistency across 25 sit/stand cycles from participant "harshit".
+
+**Script:** `python/analyze_transitions.py`
+
+**Method:**
+1. Extracted all 25 SIT_DOWN and 25 STAND_UP segments from the labeled CSV
+2. Normalized each transition to 100 samples via linear interpolation
+3. Generated overlay plots, mean±1σ curves, similarity heatmap, and reference curves
+4. Computed summary statistics and outlier detection (Euclidean distance from centroid)
+
+**Generated files (analysis/transition_overlays/):**
+- `sit_down_overlay_xyz.html` — All 25 sit-down transitions overlaid
+- `stand_up_overlay_xyz.html` — All 25 stand-up transitions overlaid
+- `sit_down_mean.html` — Mean ± 1σ for sit-down
+- `stand_up_mean.html` — Mean ± 1σ for stand-up
+- `transition_similarity_heatmap.html` — Pairwise Euclidean distance
+- `average_human_transition.html` — Reference mean curves (both transitions)
+- `transition_statistics.md` — Full statistics report
+
+**Key findings:**
+- Sit-down: 25 transitions, avg 2.76s (range 1.68–3.68s, σ=0.47s)
+- Stand-up: 25 transitions, avg 2.73s (range 1.62–3.32s, σ=0.34s)
+- Peak magnitude ~11.2 m/s² for both transitions
+- Outliers detected: Sit-down cycles 5 and 17 (not removed, only flagged)
+- Stand-up transitions are more consistent (lower duration variance, no outliers)
+
+**Observations:**
+- Transitions are highly repeatable — overlay plots show tight clustering
+- The Y-axis (vertical when worn) carries the strongest transition signal
+- Stand-up transitions are slightly more consistent than sit-down
+- Cycles 5 and 17 may have had hesitation or unusual movement
