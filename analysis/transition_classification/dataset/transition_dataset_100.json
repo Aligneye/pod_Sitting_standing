@@ -1,0 +1,12 @@
+{
+  "source_files": [
+    "harshit_session_001_20260626_184217.csv",
+    "validation_20260626_183159.csv"
+  ],
+  "rows": 52,
+  "samples_per_transition": 100,
+  "labels": [
+    "SIT_DOWN",
+    "STAND_UP"
+  ]
+}

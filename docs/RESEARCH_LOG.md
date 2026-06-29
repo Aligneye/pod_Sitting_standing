@@ -192,3 +192,28 @@ Exploratory analysis of transition consistency across 25 sit/stand cycles from p
 - The Y-axis (vertical when worn) carries the strongest transition signal
 - Stand-up transitions are slightly more consistent than sit-down
 - Cycles 5 and 17 may have had hesitation or unusual movement
+
+---
+
+### 2026-06-29 â€” Transition Alignment Refactor for Timing vs Motion Research
+
+**What was changed:**
+- Refactored `analysis/transition_alignment/transition_alignment_analysis.py` to eliminate repeated similarity calculations.
+- Kept all existing outputs intact: duration histograms, start-aligned overlays, landmark-aligned overlays, Euclidean heatmaps, summary CSV, and markdown reporting.
+- Added stage-level timing logs and a runtime summary to the markdown report.
+- Replaced exhaustive pairwise DTW with DTW-to-reference only.
+
+**Why pairwise DTW was replaced:**
+- Full NxN DTW was the dominant bottleneck.
+- For this experiment, we do not need an all-to-all similarity graph.
+- Comparing each transition against a representative reference still answers the research question: whether stand-up variability is mostly timing shift or a genuinely different movement pattern.
+
+**Expected speedup:**
+- Euclidean pairwise heatmaps are computed once and reused.
+- DTW cost drops from O(N^2) comparisons to O(N) reference comparisons.
+- With 25 transitions, this removes most of the expensive dynamic programming work.
+
+**Why scientific validity is preserved:**
+- The goal is interpretation, not clustering or classification.
+- We only need to know whether alignment reduces variability and whether residual differences remain after timing correction.
+- DTW-to-reference is sufficient to measure atypicality relative to a shared motion template for the current question.
