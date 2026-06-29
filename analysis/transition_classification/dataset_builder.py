@@ -29,14 +29,23 @@ from analysis.transition_classification.utils import (
 
 
 def build_dataset(csv_files: List[Path], n_samples: int = 100) -> pd.DataFrame:
+    """Convert raw recordings into one row per transition.
+
+    Each row is like a single flashcard: it contains the label, the source
+    recording, the duration, and the flattened normalized sensor trace.
+    """
     rows: List[Dict[str, object]] = []
     feature_cols = [f"{axis}_{i:03d}" for axis in FEATURE_AXES for i in range(n_samples)]
 
     for csv_path in csv_files:
         df = pd.read_csv(csv_path)
+        # We process SIT_DOWN and STAND_UP separately so each transition type
+        # becomes its own supervised learning example.
         for label in TARGET_LABELS:
             transitions = [add_time_columns(seg) for seg in extract_transitions(df, label)]
             for idx, seg in enumerate(transitions):
+                # Normalize now, before any model training, so every sample has
+                # the same shape regardless of how long the person took.
                 norm = normalize_transition(seg, n_samples=n_samples)
                 if not norm:
                     continue
@@ -59,6 +68,7 @@ def build_dataset(csv_files: List[Path], n_samples: int = 100) -> pd.DataFrame:
 
 
 def main() -> None:
+    """Build and save the transition dataset from raw CSV files."""
     parser = argparse.ArgumentParser(description="Build transition classification dataset")
     parser.add_argument("--file", "-f", default=None, help="Path to a specific CSV")
     parser.add_argument("--participant", "-p", default=None, help="Participant ID")

@@ -28,11 +28,22 @@ FEATURE_AXES = ("acc_x", "acc_y", "acc_z")
 
 
 def ensure_output_dirs() -> None:
+    """Create the folders used by this experiment.
+
+    Think of this like setting out separate trays before sorting parts on a
+    workbench: one tray for reports, one for plots, one for saved models, and
+    one for datasets.
+    """
     for path in [REPORTS_DIR, PLOTS_DIR, MODELS_DIR, DATASET_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
 def find_csvs(participant: Optional[str] = None, session: Optional[int] = None, file_path: Optional[str] = None) -> List[Path]:
+    """Find the raw capture CSVs to use for an experiment.
+
+    This keeps dataset selection in one place so the training scripts do not
+    need to know where the raw files live.
+    """
     if file_path:
         p = Path(file_path)
         return [p] if p.exists() else []
@@ -49,6 +60,12 @@ def find_csvs(participant: Optional[str] = None, session: Optional[int] = None, 
 
 
 def extract_transitions(df: pd.DataFrame, label: str) -> List[pd.DataFrame]:
+    """Split one recording into contiguous transition segments.
+
+    Example: if a session contains STANDING -> SIT_DOWN -> SITTING ->
+    STAND_UP, this returns the full SIT_DOWN block and the full STAND_UP block
+    as separate chunks.
+    """
     transitions: List[pd.DataFrame] = []
     in_segment = False
     start_idx = 0
@@ -65,6 +82,11 @@ def extract_transitions(df: pd.DataFrame, label: str) -> List[pd.DataFrame]:
 
 
 def add_time_columns(seg: pd.DataFrame) -> pd.DataFrame:
+    """Add time-from-start and magnitude columns for one transition.
+
+    This is like putting a ruler next to each transition so every later step
+    can compare samples using the same reference frame.
+    """
     seg = seg.copy()
     seg["time_s"] = (seg["timestamp_ms"] - seg["timestamp_ms"].iloc[0]) / 1000.0
     seg["magnitude"] = np.sqrt(seg["acc_x"] ** 2 + seg["acc_y"] ** 2 + seg["acc_z"] ** 2)
@@ -72,6 +94,12 @@ def add_time_columns(seg: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_transition(seg: pd.DataFrame, n_samples: int) -> Dict[str, np.ndarray]:
+    """Resample one transition to a fixed length with interpolation.
+
+    If one person takes 1.8 seconds to sit down and another takes 2.6 seconds,
+    interpolation stretches or compresses the signal so both become the same
+    length before feature extraction.
+    """
     if len(seg) < 2:
         return {}
     t_orig = np.linspace(0.0, 1.0, len(seg))
@@ -83,8 +111,10 @@ def normalize_transition(seg: pd.DataFrame, n_samples: int) -> Dict[str, np.ndar
 
 
 def vectorize_normalized(item: Dict[str, np.ndarray], axes: List[str]) -> np.ndarray:
+    """Flatten selected axes into a single feature vector."""
     return np.concatenate([item[axis] for axis in axes])
 
 
 def compute_transition_id(source_name: str, label: str, index: int) -> str:
+    """Build a stable ID for each transition sample."""
     return f"{Path(source_name).stem}_{label}_{index + 1:03d}"

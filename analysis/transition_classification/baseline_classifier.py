@@ -33,10 +33,17 @@ from analysis.transition_classification.utils import DATASET_DIR, FEATURE_AXES, 
 
 
 def feature_columns(n_samples: int, axes: Sequence[str]) -> List[str]:
+    """Create the column names for the flattened transition features."""
     return [f"{axis}_{i:03d}" for axis in axes for i in range(n_samples)]
 
 
 def make_models() -> Dict[str, object]:
+    """Define the baseline models.
+
+    Logistic Regression and SVM use a scaler because they are sensitive to
+    feature scale. Random Forest does not need scaling, like a decision-maker
+    that only cares about relative thresholds.
+    """
     return {
         "Logistic Regression": Pipeline([
             ("scaler", StandardScaler()),
@@ -51,6 +58,11 @@ def make_models() -> Dict[str, object]:
 
 
 def run_model(name: str, model, X: np.ndarray, y: np.ndarray, transition_ids: Sequence[str], labels: Sequence[str]) -> Tuple[Dict[str, object], pd.DataFrame]:
+    """Evaluate one model with cross-validation and keep per-transition predictions.
+
+    This is where we ask, fold by fold, "if the model only saw part of the
+    data, how well would it recognize the rest?"
+    """
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     scores = cross_val_score(model, X, y, cv=cv, scoring="accuracy")
     preds = cross_val_predict(model, X, y, cv=cv)
@@ -82,6 +94,7 @@ def run_model(name: str, model, X: np.ndarray, y: np.ndarray, transition_ids: Se
 
 
 def plot_confusion_matrix(cm: np.ndarray, labels: Sequence[str], path: Path, title: str) -> None:
+    """Draw a confusion matrix so mistakes are easy to inspect at a glance."""
     fig, ax = plt.subplots(figsize=(5, 4))
     im = ax.imshow(cm, cmap="Blues")
     ax.set_xticks(range(len(labels)))
@@ -101,6 +114,7 @@ def plot_confusion_matrix(cm: np.ndarray, labels: Sequence[str], path: Path, tit
 
 
 def write_report(rows: List[Dict[str, object]], output_path: Path) -> None:
+    """Write a human-readable summary of the benchmark results."""
     lines = [
         "# Baseline Transition Classification Report",
         "",
@@ -127,6 +141,7 @@ def write_report(rows: List[Dict[str, object]], output_path: Path) -> None:
 
 
 def main() -> None:
+    """Run the baseline benchmark from raw CSVs or a prebuilt dataset."""
     parser = argparse.ArgumentParser(description="Baseline transition classifier")
     parser.add_argument("--dataset", default=None, help="Path to a prebuilt dataset CSV")
     parser.add_argument("--file", "-f", default=None, help="Path to a specific raw CSV")

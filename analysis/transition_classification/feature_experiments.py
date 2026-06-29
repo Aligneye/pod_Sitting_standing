@@ -36,10 +36,12 @@ EXPERIMENTS = {
 
 
 def feature_columns(n_samples: int, axes: Sequence[str]) -> List[str]:
+    """Create the flattened feature columns for a chosen axis subset."""
     return [f"{axis}_{i:03d}" for axis in axes for i in range(n_samples)]
 
 
 def run_benchmark(X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+    """Evaluate a simple logistic regression benchmark for one feature set."""
     model = Pipeline([
         ("scaler", StandardScaler()),
         ("model", LogisticRegression(max_iter=2000, class_weight="balanced")),
@@ -58,6 +60,7 @@ def run_benchmark(X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
 
 
 def main() -> None:
+    """Run the feature-sweep experiment across several axis combinations."""
     parser = argparse.ArgumentParser(description="Transition feature experiments")
     parser.add_argument("--dataset", default=None, help="Path to a prebuilt dataset CSV")
     parser.add_argument("--file", "-f", default=None, help="Path to raw CSV")
