@@ -10,6 +10,10 @@ from typing import Dict, List, Sequence, Tuple
 
 import sys
 
+import joblib
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -114,6 +118,24 @@ def run_model(name: str, model, X: np.ndarray, y: np.ndarray, transition_ids: Se
     return metrics, pred_df
 
 
+def model_filename(model_name: str) -> str:
+    """Create a filesystem-friendly model artifact name."""
+    return model_name.lower().replace(" ", "_").replace("(", "").replace(")", "") + ".joblib"
+
+
+def export_trained_model(name: str, model, X: np.ndarray, y: np.ndarray) -> Path:
+    """Fit one final model on all available data and save it for live inference.
+
+    Cross-validation above estimates performance. This export step trains the
+    deployable artifact on the full dataset so live inference gets the strongest
+    version of the baseline model.
+    """
+    model.fit(X, y)
+    output_path = MODELS_DIR / model_filename(name)
+    joblib.dump(model, output_path)
+    return output_path
+
+
 def plot_confusion_matrix(cm: np.ndarray, labels: Sequence[str], path: Path, title: str) -> None:
     """Draw a confusion matrix so mistakes are easy to inspect at a glance."""
     fig, ax = plt.subplots(figsize=(5, 4))
@@ -191,6 +213,7 @@ def main() -> None:
 
     model_rows = []
     prediction_frames = []
+    exported_models = []
     for model_name, model in make_models().items():
         metrics, pred_df = run_model(model_name, model, X, y, transition_ids, labels)
         model_rows.append(metrics)
@@ -198,12 +221,15 @@ def main() -> None:
 
         cm = np.asarray(metrics["confusion_matrix"])
         plot_confusion_matrix(cm, labels, PLOTS_DIR / f"{model_name.lower().replace(' ', '_')}_confusion_matrix.png", model_name)
+        exported_models.append(export_trained_model(model_name, model, X, y))
 
     results_df = pd.DataFrame(model_rows)
     results_df.to_csv(REPORTS_DIR / "results.csv", index=False)
     pd.concat(prediction_frames, ignore_index=True).to_csv(REPORTS_DIR / "predictions.csv", index=False)
     write_report(model_rows, REPORTS_DIR / "classification_report.md")
     print(f"Saved reports to {REPORTS_DIR}")
+    for model_path in exported_models:
+        print(f"Saved model: {model_path}")
 
 
 if __name__ == "__main__":
