@@ -18,12 +18,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.transition_classification.utils import (
     DATASET_DIR,
     FEATURE_AXES,
+    METADATA_COLUMNS,
     TARGET_LABELS,
     add_time_columns,
     compute_transition_id,
     ensure_output_dirs,
     extract_transitions,
     find_csvs,
+    parse_transition_metadata,
     normalize_transition,
 )
 
@@ -35,10 +37,10 @@ def build_dataset(csv_files: List[Path], n_samples: int = 100) -> pd.DataFrame:
     recording, the duration, and the flattened normalized sensor trace.
     """
     rows: List[Dict[str, object]] = []
-    feature_cols = [f"{axis}_{i:03d}" for axis in FEATURE_AXES for i in range(n_samples)]
 
     for csv_path in csv_files:
         df = pd.read_csv(csv_path)
+        source_meta = parse_transition_metadata(csv_path)
         # We process SIT_DOWN and STAND_UP separately so each transition type
         # becomes its own supervised learning example.
         for label in TARGET_LABELS:
@@ -51,18 +53,26 @@ def build_dataset(csv_files: List[Path], n_samples: int = 100) -> pd.DataFrame:
                     continue
                 row: Dict[str, object] = {
                     "transition_id": compute_transition_id(csv_path.name, label, idx),
+                    "participant_id": source_meta.get("participant_id", "unknown"),
+                    "session_id": source_meta.get("session_id", "unknown"),
                     "source_file": csv_path.name,
+                    "recording_timestamp": source_meta.get("recording_timestamp", "unknown"),
+                    "cycle_number": idx + 1,
+                    "transition_index": idx + 1,
+                    "transition_duration_seconds": (seg["timestamp_ms"].iloc[-1] - seg["timestamp_ms"].iloc[0]) / 1000.0,
                     "label": label,
-                    "duration_s": (seg["timestamp_ms"].iloc[-1] - seg["timestamp_ms"].iloc[0]) / 1000.0,
-                    "num_samples": len(seg),
                 }
+                feature_values: List[float] = []
                 for axis in FEATURE_AXES:
-                    for i, value in enumerate(norm[axis]):
-                        row[f"{axis}_{i:03d}"] = float(value)
+                    feature_values.extend(float(v) for v in norm[axis])
+                for i, value in enumerate(feature_values):
+                    row[f"feature_{i:03d}"] = value
                 rows.append(row)
 
     dataset = pd.DataFrame(rows)
     if not dataset.empty:
+        ordered_cols = METADATA_COLUMNS + [c for c in dataset.columns if c.startswith("feature_")]
+        dataset = dataset[ordered_cols]
         dataset = dataset.sort_values(["source_file", "label", "transition_id"]).reset_index(drop=True)
     return dataset
 
@@ -93,6 +103,7 @@ def main() -> None:
         "rows": int(len(dataset)),
         "samples_per_transition": args.samples,
         "labels": list(TARGET_LABELS),
+        "metadata_columns": METADATA_COLUMNS,
     }
     (DATASET_DIR / f"transition_dataset_{args.samples}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"Saved dataset: {out_csv}")

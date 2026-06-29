@@ -29,12 +29,33 @@ from sklearn.svm import SVC
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.transition_classification.dataset_builder import build_dataset
-from analysis.transition_classification.utils import DATASET_DIR, FEATURE_AXES, MODELS_DIR, PLOTS_DIR, REPORTS_DIR, ensure_output_dirs, find_csvs
+from analysis.transition_classification.utils import METADATA_COLUMNS, MODELS_DIR, PLOTS_DIR, REPORTS_DIR, ensure_output_dirs, find_csvs
 
 
-def feature_columns(n_samples: int, axes: Sequence[str]) -> List[str]:
-    """Create the column names for the flattened transition features."""
-    return [f"{axis}_{i:03d}" for axis in axes for i in range(n_samples)]
+def feature_columns(dataset: pd.DataFrame) -> List[str]:
+    """Select every model input column without hardcoding indices."""
+    return [c for c in dataset.columns if c.startswith("feature_")]
+
+
+def split_dataset_columns(dataset: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Split metadata columns from feature columns.
+
+    This keeps the training code future-proof: anything named `feature_*` is
+    treated as model input, and everything else is preserved for analysis and
+    later grouped validation experiments.
+    """
+    metadata = dataset[[c for c in dataset.columns if c in METADATA_COLUMNS]].copy()
+    features = dataset[[c for c in dataset.columns if c.startswith("feature_")]].copy()
+    return metadata, features
+
+
+def extract_validation_keys(dataset: pd.DataFrame) -> Dict[str, pd.Series]:
+    """Expose grouping columns now so future validation modes can reuse them."""
+    return {
+        "participant_ids": dataset["participant_id"].copy() if "participant_id" in dataset else pd.Series(dtype=object),
+        "session_ids": dataset["session_id"].copy() if "session_id" in dataset else pd.Series(dtype=object),
+        "source_files": dataset["source_file"].copy() if "source_file" in dataset else pd.Series(dtype=object),
+    }
 
 
 def make_models() -> Dict[str, object]:
@@ -161,10 +182,12 @@ def main() -> None:
         raise SystemExit("Dataset is empty.")
 
     labels = list(dict.fromkeys(dataset["label"].tolist()))
-    feature_cols = [c for c in dataset.columns if c.startswith(tuple(FEATURE_AXES))]
+    _, feature_df = split_dataset_columns(dataset)
+    feature_cols = list(feature_df.columns)
     X = dataset[feature_cols].to_numpy(dtype=float)
     y = dataset["label"].to_numpy()
     transition_ids = dataset["transition_id"].tolist()
+    validation_keys = extract_validation_keys(dataset)
 
     model_rows = []
     prediction_frames = []

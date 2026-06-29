@@ -1,12 +1,24 @@
 {
   "source_files": [
-    "harshit_session_001_20260626_184217.csv",
-    "validation_20260626_183159.csv"
+    "apoorav1_session_001_20260629_163855.csv",
+    "ayushi1_session_001_20260629_165758.csv",
+    "harshit_session_001_20260626_184217.csv"
   ],
-  "rows": 52,
+  "rows": 150,
   "samples_per_transition": 100,
   "labels": [
     "SIT_DOWN",
     "STAND_UP"
+  ],
+  "metadata_columns": [
+    "transition_id",
+    "participant_id",
+    "session_id",
+    "source_file",
+    "recording_timestamp",
+    "cycle_number",
+    "transition_index",
+    "transition_duration_seconds",
+    "label"
   ]
 }

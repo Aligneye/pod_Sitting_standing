@@ -22,7 +22,7 @@ from sklearn.svm import SVC
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.transition_classification.dataset_builder import build_dataset
-from analysis.transition_classification.utils import FEATURE_AXES, PLOTS_DIR, REPORTS_DIR, ensure_output_dirs, find_csvs
+from analysis.transition_classification.utils import METADATA_COLUMNS, REPORTS_DIR, ensure_output_dirs, find_csvs
 
 
 EXPERIMENTS = {
@@ -36,8 +36,28 @@ EXPERIMENTS = {
 
 
 def feature_columns(n_samples: int, axes: Sequence[str]) -> List[str]:
-    """Create the flattened feature columns for a chosen axis subset."""
-    return [f"{axis}_{i:03d}" for axis in axes for i in range(n_samples)]
+    """Select the flattened feature columns that belong to a subset of axes.
+
+    The dataset stores all features as `feature_000 ... feature_299` so the
+    experiment code maps each requested axis back to its slice of the vector.
+    """
+    axis_order = ["acc_x", "acc_y", "acc_z"]
+    selected: List[str] = []
+    for axis in axes:
+        axis_index = axis_order.index(axis)
+        start = axis_index * n_samples
+        end = start + n_samples
+        selected.extend([f"feature_{i:03d}" for i in range(start, end)])
+    return selected
+
+
+def extract_validation_keys(dataset: pd.DataFrame) -> Dict[str, pd.Series]:
+    """Expose metadata columns for future grouped validation experiments."""
+    return {
+        "participant_ids": dataset["participant_id"].copy() if "participant_id" in dataset else pd.Series(dtype=object),
+        "session_ids": dataset["session_id"].copy() if "session_id" in dataset else pd.Series(dtype=object),
+        "source_files": dataset["source_file"].copy() if "source_file" in dataset else pd.Series(dtype=object),
+    }
 
 
 def run_benchmark(X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
@@ -76,6 +96,7 @@ def main() -> None:
         csvs = find_csvs(args.participant, args.session, args.file)
         dataset = build_dataset(csvs, n_samples=args.samples)
 
+    validation_keys = extract_validation_keys(dataset)
     rows = []
     for experiment_name, axes in EXPERIMENTS.items():
         feature_cols = feature_columns(args.samples, axes)

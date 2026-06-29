@@ -25,6 +25,17 @@ DATASET_DIR = CLASSIFICATION_ROOT / "dataset"
 
 TARGET_LABELS = ("SIT_DOWN", "STAND_UP")
 FEATURE_AXES = ("acc_x", "acc_y", "acc_z")
+METADATA_COLUMNS = [
+    "transition_id",
+    "participant_id",
+    "session_id",
+    "source_file",
+    "recording_timestamp",
+    "cycle_number",
+    "transition_index",
+    "transition_duration_seconds",
+    "label",
+]
 
 
 def ensure_output_dirs() -> None:
@@ -118,3 +129,28 @@ def vectorize_normalized(item: Dict[str, np.ndarray], axes: List[str]) -> np.nda
 def compute_transition_id(source_name: str, label: str, index: int) -> str:
     """Build a stable ID for each transition sample."""
     return f"{Path(source_name).stem}_{label}_{index + 1:03d}"
+
+
+def parse_transition_metadata(source_path: Path) -> Dict[str, str]:
+    """Extract useful identifiers from a raw CSV filename/path.
+
+    This is intentionally lightweight: we reuse metadata that already exists in
+    the file path instead of asking anyone to recollect data.
+    """
+    participant_id = source_path.parent.name if source_path.parent.name else "unknown"
+
+    stem_parts = source_path.stem.split("_")
+    session_id = "unknown"
+    recording_timestamp = "unknown"
+    if len(stem_parts) >= 3 and stem_parts[1] == "session":
+        session_id = f"{stem_parts[1]}_{stem_parts[2]}"
+    if len(stem_parts) >= 5:
+        recording_timestamp = f"{stem_parts[-2]}_{stem_parts[-1]}"
+    elif len(stem_parts) >= 1:
+        recording_timestamp = stem_parts[-1]
+
+    return {
+        "participant_id": participant_id,
+        "session_id": session_id,
+        "recording_timestamp": recording_timestamp,
+    }
