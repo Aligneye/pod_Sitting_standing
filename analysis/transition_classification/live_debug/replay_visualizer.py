@@ -68,27 +68,50 @@ def _ensure_output_dir(session_dir: Path, output_dir: Optional[Path]) -> Path:
     return default
 
 
+def _annotate_window_spans(ax: plt.Axes, windows: pd.DataFrame, base_ts: int, y_offset: float = 0.98) -> None:
+    """Draw window spans and label each one with its bounds."""
+    if windows.empty:
+        return
+
+    ymin, ymax = ax.get_ylim()
+    label_y = ymax - (ymax - ymin) * (1.0 - y_offset)
+
+    for _, row in windows.iterrows():
+        start_ts = int(row["start_timestamp"])
+        end_ts = int(row["end_timestamp"])
+        window_id = int(row["window_id"])
+        ax.axvspan(start_ts, end_ts, color="gray", alpha=0.06)
+        ax.axvline(start_ts, color="#1f77b4", alpha=0.2, linewidth=0.8)
+        ax.axvline(end_ts, color="#d62728", alpha=0.2, linewidth=0.8)
+        ax.text(
+            (start_ts + end_ts) / 2.0,
+            label_y,
+            f"W{window_id}\n{start_ts} - {end_ts}",
+            ha="center",
+            va="top",
+            fontsize=7,
+            color="#333333",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none"),
+        )
+
+
 def _plot_xyz(session: RecordedSession, output_dir: Path, window_changes: Optional[pd.DataFrame] = None) -> Path:
     df = session.raw_samples.sort_values("sample_index").reset_index(drop=True)
-    time_s = (df["timestamp_ms"] - df["timestamp_ms"].iloc[0]) / 1000.0
+    time_ms = df["timestamp_ms"]
     fig, ax = plt.subplots(figsize=(14, 6))
     for axis, color in [("acc_x", "#1f77b4"), ("acc_y", "#ff7f0e"), ("acc_z", "#2ca02c")]:
-        ax.plot(time_s, df[axis], label=axis, linewidth=1.2, color=color)
+        ax.plot(time_ms, df[axis], label=axis, linewidth=1.2, color=color)
 
-    for _, row in session.windows.iterrows():
-        start_time = (int(row["start_timestamp"]) - int(df["timestamp_ms"].iloc[0])) / 1000.0
-        end_time = (int(row["end_timestamp"]) - int(df["timestamp_ms"].iloc[0])) / 1000.0
-        ax.axvspan(start_time, end_time, color="gray", alpha=0.05)
+    _annotate_window_spans(ax, session.windows, int(df["timestamp_ms"].iloc[0]))
 
     if window_changes is not None and not window_changes.empty:
-        base_ts = int(df["timestamp_ms"].iloc[0])
         for _, row in window_changes.iterrows():
-            t = (int(session.windows.loc[session.windows["window_id"] == row["window_id"], "end_timestamp"].iloc[0]) - base_ts) / 1000.0
+            t = int(session.windows.loc[session.windows["window_id"] == row["window_id"], "end_timestamp"].iloc[0])
             ax.axvline(t, color="crimson", linestyle="--", alpha=0.45)
             ax.text(t, ax.get_ylim()[1], str(row["prediction"]), rotation=90, va="top", ha="right", fontsize=8, color="crimson")
 
     ax.set_title("Accelerometer XYZ vs Time")
-    ax.set_xlabel("Time (s)")
+    ax.set_xlabel("Timestamp (ms)")
     ax.set_ylabel("Acceleration")
     ax.legend(loc="upper right")
     ax.grid(True, alpha=0.2)
@@ -103,10 +126,7 @@ def _plot_window_boundaries(session: RecordedSession, output_dir: Path) -> Path:
     df = session.raw_samples.sort_values("sample_index").reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(14, 3.5))
     ax.plot(df["timestamp_ms"], np.zeros(len(df)), alpha=0.0)
-    for _, row in session.windows.iterrows():
-        ax.axvspan(row["start_timestamp"], row["end_timestamp"], color="#1f77b4", alpha=0.12)
-        ax.axvline(row["start_timestamp"], color="#1f77b4", alpha=0.3, linewidth=0.8)
-        ax.axvline(row["end_timestamp"], color="#d62728", alpha=0.3, linewidth=0.8)
+    _annotate_window_spans(ax, session.windows, int(df["timestamp_ms"].iloc[0]), y_offset=0.92)
     ax.set_title("Window Boundaries")
     ax.set_xlabel("Timestamp (ms)")
     ax.set_yticks([])
@@ -204,28 +224,26 @@ def _plot_overlay(session: RecordedSession, output_dir: Path) -> Path:
     df = session.raw_samples.sort_values("sample_index").reset_index(drop=True)
     windows = session.windows.sort_values("window_id").reset_index(drop=True)
     preds = session.predictions.sort_values("window_id").reset_index(drop=True)
-    time_s = (df["timestamp_ms"] - df["timestamp_ms"].iloc[0]) / 1000.0
+    time_ms = df["timestamp_ms"]
 
     fig, ax = plt.subplots(figsize=(14, 6))
-    ax.plot(time_s, df["acc_x"], color="#1f77b4", linewidth=1.0, alpha=0.85, label="acc_x")
-    ax.plot(time_s, df["acc_y"], color="#ff7f0e", linewidth=1.0, alpha=0.85, label="acc_y")
-    ax.plot(time_s, df["acc_z"], color="#2ca02c", linewidth=1.0, alpha=0.85, label="acc_z")
+    ax.plot(time_ms, df["acc_x"], color="#1f77b4", linewidth=1.0, alpha=0.85, label="acc_x")
+    ax.plot(time_ms, df["acc_y"], color="#ff7f0e", linewidth=1.0, alpha=0.85, label="acc_y")
+    ax.plot(time_ms, df["acc_z"], color="#2ca02c", linewidth=1.0, alpha=0.85, label="acc_z")
 
     change_rows = _prediction_changes(preds)
     base_ts = int(df["timestamp_ms"].iloc[0])
-    for _, row in windows.iterrows():
-        start_time = (int(row["start_timestamp"]) - base_ts) / 1000.0
-        end_time = (int(row["end_timestamp"]) - base_ts) / 1000.0
-        ax.axvspan(start_time, end_time, color="gray", alpha=0.04)
+    _annotate_window_spans(ax, windows, base_ts, y_offset=0.94)
 
     for _, row in change_rows.iterrows():
         window_ts = int(windows.loc[windows["window_id"] == row["window_id"], "end_timestamp"].iloc[0])
-        t = (window_ts - base_ts) / 1000.0
+        t = window_ts
         ax.axvline(t, color="crimson", linestyle="--", linewidth=1.2, alpha=0.6)
-        ax.scatter([t], [df["acc_z"].iloc[min(len(df) - 1, np.searchsorted(time_s, t))]], color="crimson", s=20, zorder=5)
+        idx = min(len(df) - 1, np.searchsorted(time_ms.to_numpy(), t))
+        ax.scatter([t], [df["acc_z"].iloc[idx]], color="crimson", s=20, zorder=5)
 
     ax.set_title("Accelerometer Signals with Prediction Changes")
-    ax.set_xlabel("Time (s)")
+    ax.set_xlabel("Timestamp (ms)")
     ax.set_ylabel("Acceleration")
     ax.legend(loc="upper right")
     ax.grid(True, alpha=0.2)

@@ -111,13 +111,13 @@ To run raw model only, set all three `ENABLE_*` options in `decision_config.py` 
 Live serial:
 
 ```bash
-python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/logistic_regression.joblib --port COM5
+python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --port COM16
 ```
 
 CSV replay:
 
 ```bash
-python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/logistic_regression.joblib --csv datasets/raw/harshit/harshit_session_001_20260626_184217.csv
+python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --csv datasets/raw/harshit/harshit_session_001_20260626_184217.csv
 ```
 
 ## Notes

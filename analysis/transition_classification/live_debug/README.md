@@ -47,8 +47,15 @@ Extra columns are also stored when available:
 One row per window with the exact flattened feature vector that was passed to
 the model.
 
-The columns are named `feature_000`, `feature_001`, and so on so they can be
-compared directly with the offline dataset.
+The file includes time alignment columns plus the flattened feature vector:
+
+- `window_id`
+- `timestamp_ms`
+- `start_timestamp_ms`
+- `end_timestamp_ms`
+
+The feature columns are named `feature_000`, `feature_001`, and so on so they
+can be compared directly with the offline dataset.
 
 ## Prediction log
 
@@ -87,7 +94,7 @@ Extra decision-layer fields are stored too when available:
 Run the live CLI with a debug session directory:
 
 ```bash
-python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/logistic_regression.joblib --port COM5 --debug-session analysis/transition_classification/live_debug/sessions/session_001
+python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --port COM16 --debug-session analysis/transition_classification/live_debug/sessions/session_001
 ```
 
 ## How to replay and visualize
@@ -107,7 +114,7 @@ python analysis/transition_classification/live_debug/replay_visualizer.py --sess
 Optionally recompute predictions during replay:
 
 ```bash
-python analysis/transition_classification/live_debug/replay_visualizer.py --session-dir analysis/transition_classification/live_debug/sessions/session_001 --replay --model analysis/transition_classification/models/logistic_regression.joblib
+python analysis/transition_classification/live_debug/replay_visualizer.py --session-dir analysis/transition_classification/live_debug/sessions/session_001 --replay --model analysis/transition_classification/models/svm_rbf.joblib
 ```
 
 ## Generated plots
@@ -120,6 +127,14 @@ The visualizer writes:
 - `confidence_timeline.png`
 - `ground_truth_timeline.png` when labels exist
 - `overlay_prediction_changes.png`
+
+For interactive window-boundary plots across both live and training data, use
+`python/window_plots.py`.
+
+```bash
+python python/window_plots.py --live-session analysis/transition_classification/live_debug/sessions/session_001 --label-every 1
+python python/window_plots.py --all
+```
 
 ## Debugging workflow
 
@@ -140,7 +155,7 @@ model or its preprocessing.
 If you only want a short capture, add `--duration`:
 
 ```bash
-python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/logistic_regression.joblib --port COM5 --debug-session analysis/transition_classification/live_debug/sessions/session_001 --duration 60
+python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --port COM16 --debug-session analysis/transition_classification/live_debug/sessions/session_001 --duration 60
 ```
 
 That will stop after about 60 seconds and still write the session bundle.

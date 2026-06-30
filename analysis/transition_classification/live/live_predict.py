@@ -3,7 +3,7 @@ Real-time transition inference from a serial stream or CSV replay.
 
 Run from the project root:
 
-    python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/logistic_regression.joblib --port COM16
+    python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --port COM16
 
 Replay a recorded CSV instead of using hardware:
 
@@ -168,7 +168,12 @@ def run_live(
                         window_size_samples=window.window_size_samples,
                         step_samples=window.step_samples,
                     )
-                    recorder.record_features(window.window_id, features)
+                    recorder.record_features(
+                        window_id=window.window_id,
+                        start_timestamp=window.start_timestamp_ms,
+                        end_timestamp=window.end_timestamp_ms,
+                        features=features,
+                    )
                     recorder.record_prediction(
                         window_id=window.window_id,
                         prediction=prediction,
@@ -253,7 +258,12 @@ def run_replay(
                         window_size_samples=window.window_size_samples,
                         step_samples=window.step_samples,
                     )
-                    recorder.record_features(window.window_id, features)
+                    recorder.record_features(
+                        window_id=window.window_id,
+                        start_timestamp=window.start_timestamp_ms,
+                        end_timestamp=window.end_timestamp_ms,
+                        features=features,
+                    )
                     recorder.record_prediction(
                         window_id=window.window_id,
                         prediction=prediction,
@@ -278,7 +288,7 @@ def run_replay(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Live transition inference")
     parser.add_argument("--model", required=False, help="Path to a saved sklearn/joblib model")
-    parser.add_argument("--port", default=None, help="Serial port, for example COM5")
+    parser.add_argument("--port", default=None, help="Serial port, for example COM16")
     parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate")
     parser.add_argument("--window-size", type=float, default=2.0, help="Sliding window size in seconds")
     parser.add_argument("--overlap", type=float, default=0.5, help="Sliding window overlap fraction")

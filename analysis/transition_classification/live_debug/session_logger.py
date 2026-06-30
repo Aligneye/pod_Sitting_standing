@@ -145,12 +145,23 @@ class DebugSessionRecorder:
             row["step_samples"] = step_samples
         self._windows.append(row)
 
-    def record_features(self, window_id: int, features: Sequence[float]) -> None:
+    def record_features(
+        self,
+        window_id: int,
+        start_timestamp: int,
+        end_timestamp: int,
+        features: Sequence[float],
+    ) -> None:
         values = [float(v) for v in features]
         if self._feature_names is None:
             self._feature_names = [_feature_column_name(i) for i in range(len(values))]
 
-        row: Dict[str, object] = {"window_id": window_id}
+        row: Dict[str, object] = {
+            "window_id": window_id,
+            "timestamp_ms": end_timestamp,
+            "start_timestamp_ms": start_timestamp,
+            "end_timestamp_ms": end_timestamp,
+        }
         for name, value in zip(self._feature_names, values):
             row[name] = value
         self._features.append(row)
