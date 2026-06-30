@@ -1,15 +1,6 @@
-# Legacy Live Inference
+# Live Inference
 
-This folder contains the old sliding-window live inference pipeline.
-
-The active architecture target has moved to:
-
-```text
-analysis/transition_classification/event_detection/
-```
-
-This legacy folder remains available for debugging, replay comparison, and
-historical reference while the event-detection live runner is built.
+This folder contains the real-time transition inference pipeline.
 
 ## Architecture
 

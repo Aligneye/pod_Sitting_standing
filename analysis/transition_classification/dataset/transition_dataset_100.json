@@ -2,9 +2,10 @@
   "source_files": [
     "apoorav1_session_001_20260629_163855.csv",
     "ayushi1_session_001_20260629_165758.csv",
-    "harshit_session_001_20260626_184217.csv"
+    "harshit_session_001_20260626_184217.csv",
+    "validation_20260630_153452.csv"
   ],
-  "rows": 150,
+  "rows": 152,
   "samples_per_transition": 100,
   "labels": [
     "SIT_DOWN",
