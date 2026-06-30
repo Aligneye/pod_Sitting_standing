@@ -79,6 +79,10 @@ def make_models() -> Dict[str, object]:
             ("scaler", StandardScaler()),
             ("model", SVC(kernel="rbf", class_weight="balanced")),
         ]),
+        "SVM (RBF Probability)": Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", SVC(kernel="rbf", class_weight="balanced", probability=True, random_state=42)),
+        ]),
     }
 
 

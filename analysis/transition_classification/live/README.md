@@ -65,6 +65,34 @@ It calls the same normalization helper used by the dataset builder, so the train
 
 The model still produces raw predictions exactly as before. The decision layer sits after the model and decides whether the displayed state should change.
 
+### Raw model debug mode
+
+Set `DEBUG_RAW_MODEL_OUTPUT = True` in `decision_config.py` to validate the
+trained classifier by itself.
+
+When enabled, live inference bypasses:
+
+- confidence thresholding
+- majority voting
+- consecutive prediction filtering
+- any stable-state decision behavior
+
+The printed and logged prediction for every window is the direct classifier
+output. This mode exists only for debugging the model before adding
+post-processing back.
+
+In this mode, the terminal prints one compact CSV-style row per window:
+
+```text
+window_id,timestamp_ms,prediction,confidence,inference_time_ms,preprocessing_time_ms,total_latency_ms
+```
+
+Confidence is recorded only when the loaded model exposes `predict_proba`.
+Logistic Regression and Random Forest usually do. Use
+`svm_rbf_probability.joblib` if you want SVM predictions with confidence. The
+original `svm_rbf.joblib` artifact does not expose probabilities, so confidence
+appears as `N/A` for that file.
+
 ### Confidence threshold
 
 Only accepts a prediction when confidence is at least `CONFIDENCE_THRESHOLD`.
@@ -104,7 +132,8 @@ Supported experiments:
 - Majority + Consecutive
 - All filters
 
-To run raw model only, set all three `ENABLE_*` options in `decision_config.py` to `False`.
+To run raw model only for classifier validation, prefer
+`DEBUG_RAW_MODEL_OUTPUT = True` in `decision_config.py`.
 
 ## Example commands
 
@@ -112,6 +141,12 @@ Live serial:
 
 ```bash
 python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --port COM16
+```
+
+Live serial with SVM confidence:
+
+```bash
+python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf_probability.joblib --port COM16
 ```
 
 CSV replay:

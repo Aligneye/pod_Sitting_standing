@@ -62,6 +62,7 @@ can be compared directly with the offline dataset.
 One row per inference with the live timing breakdown:
 
 - `window_id`
+- `timestamp_ms`
 - `prediction`
 - `confidence`
 - `inference_time_ms`
@@ -94,7 +95,7 @@ Extra decision-layer fields are stored too when available:
 Run the live CLI with a debug session directory:
 
 ```bash
-python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --port COM16 --debug-session analysis/transition_classification/live_debug/sessions/session_001
+python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf_probability.joblib --port COM16 --debug-session analysis/transition_classification/live_debug/sessions/session_001
 ```
 
 ## How to replay and visualize
@@ -114,7 +115,7 @@ python analysis/transition_classification/live_debug/replay_visualizer.py --sess
 Optionally recompute predictions during replay:
 
 ```bash
-python analysis/transition_classification/live_debug/replay_visualizer.py --session-dir analysis/transition_classification/live_debug/sessions/session_001 --replay --model analysis/transition_classification/models/svm_rbf.joblib
+python analysis/transition_classification/live_debug/replay_visualizer.py --session-dir analysis/transition_classification/live_debug/sessions/session_001 --replay --model analysis/transition_classification/models/svm_rbf_probability.joblib
 ```
 
 ## Generated plots
@@ -150,12 +151,33 @@ python python/window_plots.py --all
 The goal is to explain every wrong live prediction before changing the ML
 model or its preprocessing.
 
+## Raw classifier validation
+
+Set `DEBUG_RAW_MODEL_OUTPUT = True` in
+`analysis/transition_classification/live/decision_config.py` when you want to
+see the classifier output for every window with no confidence threshold,
+majority vote, debounce, cooldown, or state filtering.
+
+This mode is only for validating whether the trained classifier itself is
+wrong before re-enabling post-processing.
+
+The terminal output is intentionally compact in this mode:
+
+```text
+window_id,timestamp_ms,prediction,confidence,inference_time_ms,preprocessing_time_ms,total_latency_ms
+```
+
+If the classifier does not expose `predict_proba`, `confidence` is recorded as
+blank/`N/A`. Use `svm_rbf_probability.joblib` for SVM predictions with
+confidence; the original `svm_rbf.joblib` is still available for raw class
+labels without probability output.
+
 ## Auto-stop and emergency stop
 
 If you only want a short capture, add `--duration`:
 
 ```bash
-python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf.joblib --port COM16 --debug-session analysis/transition_classification/live_debug/sessions/session_001 --duration 60
+python analysis/transition_classification/live/live_predict.py --model analysis/transition_classification/models/svm_rbf_probability.joblib --port COM16 --debug-session analysis/transition_classification/live_debug/sessions/session_001 --duration 60
 ```
 
 That will stop after about 60 seconds and still write the session bundle.

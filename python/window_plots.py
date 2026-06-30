@@ -5,11 +5,17 @@ This produces a timestamp-based visualization showing exactly where each window
 starts and ends across the full recording.
 
 Usage:
+    # From the project root:
+    python python/window_plots.py --live-session analysis/transition_classification/live_debug/sessions/session_001
+
+    # From inside the python/ folder:
+    python window_plots.py --live-session ../analysis/transition_classification/live_debug/sessions/session_001
+
+    # Training dataset examples:
     python window_plots.py --participant P01
     python window_plots.py --participant P01 --session 1
     python window_plots.py --all
     python window_plots.py --file path/to/specific.csv
-    python window_plots.py --live-session analysis/transition_classification/live_debug/sessions/session_001
 """
 
 from __future__ import annotations

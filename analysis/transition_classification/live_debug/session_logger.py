@@ -169,6 +169,7 @@ class DebugSessionRecorder:
     def record_prediction(
         self,
         window_id: int,
+        timestamp_ms: int,
         prediction: str,
         confidence: Optional[float],
         inference_time_ms: float,
@@ -182,6 +183,7 @@ class DebugSessionRecorder:
     ) -> None:
         row: Dict[str, object] = {
             "window_id": window_id,
+            "timestamp_ms": timestamp_ms,
             "prediction": prediction,
             "confidence": confidence,
             "inference_time_ms": inference_time_ms,

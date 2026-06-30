@@ -6,9 +6,10 @@ This benchmark uses classical machine learning only.
 
 | Model | Accuracy | Precision | Recall | F1 | CV Mean | CV Std |
 |---|---:|---:|---:|---:|---:|---:|
-| Logistic Regression | 0.920 | 0.932 | 0.907 | 0.919 | 0.920 | 0.050 |
-| Random Forest | 0.933 | 0.922 | 0.947 | 0.934 | 0.933 | 0.042 |
-| SVM (RBF) | 0.973 | 0.961 | 0.987 | 0.974 | 0.973 | 0.039 |
+| Logistic Regression | 0.914 | 0.920 | 0.908 | 0.914 | 0.914 | 0.016 |
+| Random Forest | 0.961 | 0.938 | 0.987 | 0.962 | 0.960 | 0.025 |
+| SVM (RBF) | 0.974 | 0.962 | 0.987 | 0.974 | 0.974 | 0.013 |
+| SVM (RBF Probability) | 0.974 | 0.962 | 0.987 | 0.974 | 0.974 | 0.013 |
 
 ## Notes
 

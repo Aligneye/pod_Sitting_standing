@@ -24,6 +24,7 @@ from typing import Optional
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from analysis.transition_classification.live import decision_config
 from analysis.transition_classification.live.decision_layer import DecisionResult, PredictionDecisionLayer
 from analysis.transition_classification.live.inference_utils import load_model, predict_with_confidence
 from analysis.transition_classification.live.preprocessing import SlidingWindowPreprocessor
@@ -62,6 +63,51 @@ def print_prediction_block(
     print("--------------------------------\n")
 
 
+def print_raw_output_header() -> None:
+    print(
+        "window_id,timestamp_ms,prediction,confidence,"
+        "inference_time_ms,preprocessing_time_ms,total_latency_ms"
+    )
+
+
+def print_raw_output_row(
+    window_id: int,
+    timestamp_ms: int,
+    prediction: str,
+    confidence: Optional[float],
+    preprocess_time: float,
+    infer_time: float,
+    total_latency: float,
+) -> None:
+    """Print only direct classifier outputs for raw model debugging.
+
+    DEBUG_RAW_MODEL_OUTPUT exists only to validate the classifier itself before
+    confidence thresholds, voting, cooldowns, or state filtering are restored.
+    """
+    confidence_text = "N/A" if confidence is None else f"{confidence:.6f}"
+    print(
+        f"{window_id},{timestamp_ms},{prediction},{confidence_text},"
+        f"{infer_time * 1000:.2f},{preprocess_time * 1000:.2f},{total_latency * 1000:.2f}"
+    )
+
+
+def make_raw_model_decision(prediction: str, confidence: Optional[float]) -> DecisionResult:
+    """Return the classifier output directly, bypassing every stabilization filter.
+
+    This mode exists only to validate the trained classifier before adding
+    confidence thresholds, majority voting, cooldowns, or state filters back.
+    """
+    return DecisionResult(
+        raw_prediction=prediction,
+        confidence=confidence,
+        filtered_prediction=prediction,
+        stable_state=prediction,
+        decision="RawModelOutput",
+        reason="DEBUG_RAW_MODEL_OUTPUT enabled: post-processing bypassed",
+        decision_seconds=0.0,
+    )
+
+
 def _create_recorder(
     debug_session: str,
     participant: str,
@@ -89,21 +135,73 @@ def print_summary(
     total_preprocess: float,
     total_infer: float,
     decision_layer: PredictionDecisionLayer,
+    raw_model_output: bool = False,
 ) -> None:
     if not count:
         return
-    metrics = decision_layer.metrics
-    avg_conf = metrics.average_confidence
     print("Summary")
     print(f"Average latency : {(total_latency / count) * 1000:.2f} ms")
     print(f"Average preprocessing time : {(total_preprocess / count) * 1000:.2f} ms")
     print(f"Average inference time : {(total_infer / count) * 1000:.2f} ms")
+    if raw_model_output:
+        print("Decision layer : bypassed by DEBUG_RAW_MODEL_OUTPUT")
+        return
+
+    metrics = decision_layer.metrics
+    avg_conf = metrics.average_confidence
     print(f"Average decision latency : {metrics.average_decision_latency * 1000:.2f} ms")
     print(f"Average confidence : {format_confidence(avg_conf)}")
     print(f"Ignored predictions : {metrics.ignored_predictions}")
     print(f"Accepted predictions : {metrics.accepted_predictions}")
     print(f"State changes : {metrics.state_changes}")
     print(f"False state flips prevented : {metrics.false_state_flips_prevented}")
+
+
+def _record_window_outputs(
+    recorder: Optional[DebugSessionRecorder],
+    window,
+    features,
+    prediction: str,
+    decision: DecisionResult,
+    preprocess_time: float,
+    infer_time: float,
+    total_latency: float,
+) -> None:
+    if recorder is None:
+        return
+
+    recorder.record_window(
+        window_id=window.window_id,
+        start_sample=window.start_sample,
+        end_sample=window.end_sample,
+        start_timestamp=window.start_timestamp_ms,
+        end_timestamp=window.end_timestamp_ms,
+        window_size=window.window_size_seconds,
+        overlap=window.overlap,
+        window_size_seconds=window.window_size_seconds,
+        window_size_samples=window.window_size_samples,
+        step_samples=window.step_samples,
+    )
+    recorder.record_features(
+        window_id=window.window_id,
+        start_timestamp=window.start_timestamp_ms,
+        end_timestamp=window.end_timestamp_ms,
+        features=features,
+    )
+    recorder.record_prediction(
+        window_id=window.window_id,
+        timestamp_ms=window.end_timestamp_ms,
+        prediction=prediction,
+        confidence=decision.confidence,
+        inference_time_ms=infer_time * 1000.0,
+        preprocessing_time_ms=preprocess_time * 1000.0,
+        total_latency_ms=total_latency * 1000.0,
+        decision_time_ms=decision.decision_seconds * 1000.0,
+        filtered_prediction=decision.filtered_prediction,
+        stable_state=decision.stable_state,
+        decision=decision.decision,
+        decision_reason=decision.reason,
+    )
 
 
 def run_live(
@@ -118,6 +216,7 @@ def run_live(
     model = load_model(model_path)
     preprocessor = SlidingWindowPreprocessor(window_size_seconds=window_size, overlap=overlap)
     decision_layer = PredictionDecisionLayer()
+    debug_raw_model_output = decision_config.DEBUG_RAW_MODEL_OUTPUT
     total_preprocess = 0.0
     total_infer = 0.0
     total_latency = 0.0
@@ -126,9 +225,13 @@ def run_live(
     print(f"Loaded model: {model_path}")
     if recorder:
         print(f"Recording debug session to: {recorder.output_dir}")
+    if debug_raw_model_output:
+        print("DEBUG_RAW_MODEL_OUTPUT enabled: post-processing is bypassed.")
     if duration is not None:
         print(f"Auto-stop after: {duration:.1f} seconds")
     print("Listening for live samples...\n")
+    if debug_raw_model_output:
+        print_raw_output_header()
 
     try:
         start_time = time.perf_counter()
@@ -147,7 +250,7 @@ def run_live(
                 t1 = time.perf_counter()
                 prediction, confidence = predict_with_confidence(model, features)
                 infer_time = time.perf_counter() - t1
-                decision = decision_layer.update(prediction, confidence)
+                decision = make_raw_model_decision(prediction, confidence) if debug_raw_model_output else decision_layer.update(prediction, confidence)
 
                 total = preprocess_time + infer_time + decision.decision_seconds
                 total_preprocess += preprocess_time
@@ -155,42 +258,22 @@ def run_live(
                 total_latency += total
                 count += 1
 
-                if recorder:
-                    recorder.record_window(
-                        window_id=window.window_id,
-                        start_sample=window.start_sample,
-                        end_sample=window.end_sample,
-                        start_timestamp=window.start_timestamp_ms,
-                        end_timestamp=window.end_timestamp_ms,
-                        window_size=window.window_size_seconds,
-                        overlap=window.overlap,
-                        window_size_seconds=window.window_size_seconds,
-                        window_size_samples=window.window_size_samples,
-                        step_samples=window.step_samples,
-                    )
-                    recorder.record_features(
-                        window_id=window.window_id,
-                        start_timestamp=window.start_timestamp_ms,
-                        end_timestamp=window.end_timestamp_ms,
-                        features=features,
-                    )
-                    recorder.record_prediction(
-                        window_id=window.window_id,
-                        prediction=prediction,
-                        confidence=decision.confidence,
-                        inference_time_ms=infer_time * 1000.0,
-                        preprocessing_time_ms=preprocess_time * 1000.0,
-                        total_latency_ms=total * 1000.0,
-                        decision_time_ms=decision.decision_seconds * 1000.0,
-                        filtered_prediction=decision.filtered_prediction,
-                        stable_state=decision.stable_state,
-                        decision=decision.decision,
-                        decision_reason=decision.reason,
-                    )
+                _record_window_outputs(recorder, window, features, prediction, decision, preprocess_time, infer_time, total)
 
-                print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
+                if debug_raw_model_output:
+                    print_raw_output_row(
+                        window.window_id,
+                        window.end_timestamp_ms,
+                        prediction,
+                        confidence,
+                        preprocess_time,
+                        infer_time,
+                        total,
+                    )
+                else:
+                    print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
     finally:
-        print_summary(count, total_latency, total_preprocess, total_infer, decision_layer)
+        print_summary(count, total_latency, total_preprocess, total_infer, decision_layer, raw_model_output=debug_raw_model_output)
         if recorder:
             recorder.finalize()
 
@@ -206,6 +289,7 @@ def run_replay(
     model = load_model(model_path)
     preprocessor = SlidingWindowPreprocessor(window_size_seconds=window_size, overlap=overlap)
     decision_layer = PredictionDecisionLayer()
+    debug_raw_model_output = decision_config.DEBUG_RAW_MODEL_OUTPUT
     total_preprocess = 0.0
     total_infer = 0.0
     total_latency = 0.0
@@ -216,9 +300,13 @@ def run_replay(
     print(f"Replaying CSV: {csv_path}")
     if recorder:
         print(f"Recording debug session to: {recorder.output_dir}")
+    if debug_raw_model_output:
+        print("DEBUG_RAW_MODEL_OUTPUT enabled: post-processing is bypassed.")
     if duration is not None:
         print(f"Auto-stop after: {duration:.1f} seconds")
     print()
+    if debug_raw_model_output:
+        print_raw_output_header()
 
     try:
         start_time = time.perf_counter()
@@ -237,7 +325,7 @@ def run_replay(
                 t1 = time.perf_counter()
                 prediction, confidence = predict_with_confidence(model, features)
                 infer_time = time.perf_counter() - t1
-                decision = decision_layer.update(prediction, confidence)
+                decision = make_raw_model_decision(prediction, confidence) if debug_raw_model_output else decision_layer.update(prediction, confidence)
 
                 total = preprocess_time + infer_time + decision.decision_seconds
                 total_preprocess += preprocess_time
@@ -245,42 +333,22 @@ def run_replay(
                 total_latency += total
                 count += 1
 
-                if recorder:
-                    recorder.record_window(
-                        window_id=window.window_id,
-                        start_sample=window.start_sample,
-                        end_sample=window.end_sample,
-                        start_timestamp=window.start_timestamp_ms,
-                        end_timestamp=window.end_timestamp_ms,
-                        window_size=window.window_size_seconds,
-                        overlap=window.overlap,
-                        window_size_seconds=window.window_size_seconds,
-                        window_size_samples=window.window_size_samples,
-                        step_samples=window.step_samples,
-                    )
-                    recorder.record_features(
-                        window_id=window.window_id,
-                        start_timestamp=window.start_timestamp_ms,
-                        end_timestamp=window.end_timestamp_ms,
-                        features=features,
-                    )
-                    recorder.record_prediction(
-                        window_id=window.window_id,
-                        prediction=prediction,
-                        confidence=decision.confidence,
-                        inference_time_ms=infer_time * 1000.0,
-                        preprocessing_time_ms=preprocess_time * 1000.0,
-                        total_latency_ms=total * 1000.0,
-                        decision_time_ms=decision.decision_seconds * 1000.0,
-                        filtered_prediction=decision.filtered_prediction,
-                        stable_state=decision.stable_state,
-                        decision=decision.decision,
-                        decision_reason=decision.reason,
-                    )
+                _record_window_outputs(recorder, window, features, prediction, decision, preprocess_time, infer_time, total)
 
-                print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
+                if debug_raw_model_output:
+                    print_raw_output_row(
+                        window.window_id,
+                        window.end_timestamp_ms,
+                        prediction,
+                        confidence,
+                        preprocess_time,
+                        infer_time,
+                        total,
+                    )
+                else:
+                    print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
     finally:
-        print_summary(count, total_latency, total_preprocess, total_infer, decision_layer)
+        print_summary(count, total_latency, total_preprocess, total_infer, decision_layer, raw_model_output=debug_raw_model_output)
         if recorder:
             recorder.finalize()
 
