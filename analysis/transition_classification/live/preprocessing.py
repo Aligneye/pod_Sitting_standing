@@ -24,8 +24,14 @@ class WindowResult:
     """A single sliding window ready for inference."""
 
     window_id: int
+    start_sample: int
+    end_sample: int
     start_timestamp_ms: int
     end_timestamp_ms: int
+    window_size_samples: int
+    step_samples: int
+    window_size_seconds: float
+    overlap: float
     duration_seconds: float
     features: np.ndarray
     preprocessing_seconds: float
@@ -42,12 +48,15 @@ class SlidingWindowPreprocessor:
         self.window_size_samples = max(2, int(round(window_size_seconds * samples_per_second)))
         self.step_samples = max(1, int(round(self.window_size_samples * (1.0 - overlap))))
         self.buffer: Deque[Sample] = deque()
+        self.buffer_sample_indices: Deque[int] = deque()
         self.window_id = 0
-        self._last_emitted_end_ts: Optional[int] = None
+        self.sample_index = -1
 
     def add_sample(self, sample: Sample) -> List[WindowResult]:
         """Add one sample and return any newly completed windows."""
+        self.sample_index += 1
         self.buffer.append(sample)
+        self.buffer_sample_indices.append(self.sample_index)
         emitted: List[WindowResult] = []
 
         while len(self.buffer) >= self.window_size_samples:
@@ -55,6 +64,8 @@ class SlidingWindowPreprocessor:
             for _ in range(self.step_samples):
                 if self.buffer:
                     self.buffer.popleft()
+                if self.buffer_sample_indices:
+                    self.buffer_sample_indices.popleft()
         return emitted
 
     def _make_window(self) -> WindowResult:
@@ -62,6 +73,7 @@ class SlidingWindowPreprocessor:
 
         t0 = time.perf_counter()
         rows = list(self.buffer)[: self.window_size_samples]
+        sample_indices = list(self.buffer_sample_indices)[: self.window_size_samples]
         df = pd.DataFrame(
             {
                 "timestamp_ms": [s.timestamp_ms for s in rows],
@@ -76,8 +88,14 @@ class SlidingWindowPreprocessor:
         self.window_id += 1
         return WindowResult(
             window_id=self.window_id,
+            start_sample=int(sample_indices[0]),
+            end_sample=int(sample_indices[-1]),
             start_timestamp_ms=int(df["timestamp_ms"].iloc[0]),
             end_timestamp_ms=int(df["timestamp_ms"].iloc[-1]),
+            window_size_samples=self.window_size_samples,
+            step_samples=self.step_samples,
+            window_size_seconds=self.window_size_seconds,
+            overlap=self.overlap,
             duration_seconds=float((df["timestamp_ms"].iloc[-1] - df["timestamp_ms"].iloc[0]) / 1000.0),
             features=features,
             preprocessing_seconds=float(time.perf_counter() - t0),

@@ -23,6 +23,7 @@ analysis/transition_classification/
   baseline_classifier.py
   dataset_builder.py
   feature_experiments.py
+  live_debug/
   utils.py
   reports/
   plots/
@@ -122,3 +123,10 @@ We want a lightweight baseline that tells us whether the transition data is alre
 - Potential participant-specific bias
 - Cross-validation may still be optimistic if sessions are not diverse enough
 - This is only a baseline, not the final posture detection system
+
+## Live debugging
+
+Use `analysis/transition_classification/live_debug/` when a live prediction does
+not match offline validation. The recorder captures the raw stream, window
+boundaries, exact feature vectors, and timing so the session can be replayed
+and inspected before any preprocessing or model changes are made.

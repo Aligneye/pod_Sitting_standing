@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 import sys
 
@@ -28,6 +28,7 @@ from analysis.transition_classification.live.decision_layer import DecisionResul
 from analysis.transition_classification.live.inference_utils import load_model, predict_with_confidence
 from analysis.transition_classification.live.preprocessing import SlidingWindowPreprocessor
 from analysis.transition_classification.live.serial_stream import format_available_ports, iter_csv_samples, iter_serial_samples
+from analysis.transition_classification.live_debug.session_logger import DebugSessionRecorder
 
 
 def format_confidence(confidence: Optional[float]) -> str:
@@ -61,6 +62,27 @@ def print_prediction_block(
     print("--------------------------------\n")
 
 
+def _create_recorder(
+    debug_session: str,
+    participant: str,
+    session: str,
+    sampling_rate: int,
+    window_size: float,
+    overlap: float,
+    model_path: str,
+) -> DebugSessionRecorder:
+    session_dir = Path(debug_session)
+    return DebugSessionRecorder(
+        output_dir=session_dir,
+        participant=participant,
+        session=session,
+        sampling_rate=sampling_rate,
+        window_size=window_size,
+        overlap=overlap,
+        model_used=Path(model_path).name,
+    )
+
+
 def print_summary(
     count: int,
     total_latency: float,
@@ -84,7 +106,15 @@ def print_summary(
     print(f"False state flips prevented : {metrics.false_state_flips_prevented}")
 
 
-def run_live(model_path: str, port: Optional[str], baud: int, window_size: float, overlap: float) -> None:
+def run_live(
+    model_path: str,
+    port: Optional[str],
+    baud: int,
+    window_size: float,
+    overlap: float,
+    duration: Optional[float] = None,
+    recorder: Optional[DebugSessionRecorder] = None,
+) -> None:
     model = load_model(model_path)
     preprocessor = SlidingWindowPreprocessor(window_size_seconds=window_size, overlap=overlap)
     decision_layer = PredictionDecisionLayer()
@@ -92,33 +122,82 @@ def run_live(model_path: str, port: Optional[str], baud: int, window_size: float
     total_infer = 0.0
     total_latency = 0.0
     count = 0
-
+    sample_count = 0
     print(f"Loaded model: {model_path}")
+    if recorder:
+        print(f"Recording debug session to: {recorder.output_dir}")
+    if duration is not None:
+        print(f"Auto-stop after: {duration:.1f} seconds")
     print("Listening for live samples...\n")
 
-    for sample in iter_serial_samples(port=port, baud=baud):
-        windows = preprocessor.add_sample(sample)
-        for window in windows:
-            features = window.features
-            preprocess_time = window.preprocessing_seconds
+    try:
+        start_time = time.perf_counter()
+        for sample in iter_serial_samples(port=port, baud=baud):
+            if duration is not None and (time.perf_counter() - start_time) >= duration:
+                print(f"Stopping after {duration:.1f} seconds.")
+                break
+            sample_count += 1
+            if recorder:
+                recorder.record_sample(sample_count - 1, sample)
+            windows = preprocessor.add_sample(sample)
+            for window in windows:
+                features = window.features
+                preprocess_time = window.preprocessing_seconds
 
-            t1 = time.perf_counter()
-            prediction, confidence = predict_with_confidence(model, features)
-            infer_time = time.perf_counter() - t1
-            decision = decision_layer.update(prediction, confidence)
+                t1 = time.perf_counter()
+                prediction, confidence = predict_with_confidence(model, features)
+                infer_time = time.perf_counter() - t1
+                decision = decision_layer.update(prediction, confidence)
 
-            total = preprocess_time + infer_time + decision.decision_seconds
-            total_preprocess += preprocess_time
-            total_infer += infer_time
-            total_latency += total
-            count += 1
+                total = preprocess_time + infer_time + decision.decision_seconds
+                total_preprocess += preprocess_time
+                total_infer += infer_time
+                total_latency += total
+                count += 1
 
-            print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
+                if recorder:
+                    recorder.record_window(
+                        window_id=window.window_id,
+                        start_sample=window.start_sample,
+                        end_sample=window.end_sample,
+                        start_timestamp=window.start_timestamp_ms,
+                        end_timestamp=window.end_timestamp_ms,
+                        window_size=window.window_size_seconds,
+                        overlap=window.overlap,
+                        window_size_seconds=window.window_size_seconds,
+                        window_size_samples=window.window_size_samples,
+                        step_samples=window.step_samples,
+                    )
+                    recorder.record_features(window.window_id, features)
+                    recorder.record_prediction(
+                        window_id=window.window_id,
+                        prediction=prediction,
+                        confidence=decision.confidence,
+                        inference_time_ms=infer_time * 1000.0,
+                        preprocessing_time_ms=preprocess_time * 1000.0,
+                        total_latency_ms=total * 1000.0,
+                        decision_time_ms=decision.decision_seconds * 1000.0,
+                        filtered_prediction=decision.filtered_prediction,
+                        stable_state=decision.stable_state,
+                        decision=decision.decision,
+                        decision_reason=decision.reason,
+                    )
 
-    print_summary(count, total_latency, total_preprocess, total_infer, decision_layer)
+                print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
+    finally:
+        print_summary(count, total_latency, total_preprocess, total_infer, decision_layer)
+        if recorder:
+            recorder.finalize()
 
 
-def run_replay(model_path: str, csv_path: Path, window_size: float, overlap: float) -> None:
+def run_replay(
+    model_path: str,
+    csv_path: Path,
+    window_size: float,
+    overlap: float,
+    duration: Optional[float] = None,
+    recorder: Optional[DebugSessionRecorder] = None,
+) -> None:
     model = load_model(model_path)
     preprocessor = SlidingWindowPreprocessor(window_size_seconds=window_size, overlap=overlap)
     decision_layer = PredictionDecisionLayer()
@@ -126,31 +205,74 @@ def run_replay(model_path: str, csv_path: Path, window_size: float, overlap: flo
     total_infer = 0.0
     total_latency = 0.0
     count = 0
+    sample_count = 0
 
     print(f"Loaded model: {model_path}")
     print(f"Replaying CSV: {csv_path}")
+    if recorder:
+        print(f"Recording debug session to: {recorder.output_dir}")
+    if duration is not None:
+        print(f"Auto-stop after: {duration:.1f} seconds")
     print()
 
-    for sample in iter_csv_samples(csv_path, realtime=True):
-        windows = preprocessor.add_sample(sample)
-        for window in windows:
-            features = window.features
-            preprocess_time = window.preprocessing_seconds
+    try:
+        start_time = time.perf_counter()
+        for sample in iter_csv_samples(csv_path, realtime=True):
+            if duration is not None and (time.perf_counter() - start_time) >= duration:
+                print(f"Stopping after {duration:.1f} seconds.")
+                break
+            sample_count += 1
+            if recorder:
+                recorder.record_sample(sample_count - 1, sample)
+            windows = preprocessor.add_sample(sample)
+            for window in windows:
+                features = window.features
+                preprocess_time = window.preprocessing_seconds
 
-            t1 = time.perf_counter()
-            prediction, confidence = predict_with_confidence(model, features)
-            infer_time = time.perf_counter() - t1
-            decision = decision_layer.update(prediction, confidence)
+                t1 = time.perf_counter()
+                prediction, confidence = predict_with_confidence(model, features)
+                infer_time = time.perf_counter() - t1
+                decision = decision_layer.update(prediction, confidence)
 
-            total = preprocess_time + infer_time + decision.decision_seconds
-            total_preprocess += preprocess_time
-            total_infer += infer_time
-            total_latency += total
-            count += 1
+                total = preprocess_time + infer_time + decision.decision_seconds
+                total_preprocess += preprocess_time
+                total_infer += infer_time
+                total_latency += total
+                count += 1
 
-            print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
+                if recorder:
+                    recorder.record_window(
+                        window_id=window.window_id,
+                        start_sample=window.start_sample,
+                        end_sample=window.end_sample,
+                        start_timestamp=window.start_timestamp_ms,
+                        end_timestamp=window.end_timestamp_ms,
+                        window_size=window.window_size_seconds,
+                        overlap=window.overlap,
+                        window_size_seconds=window.window_size_seconds,
+                        window_size_samples=window.window_size_samples,
+                        step_samples=window.step_samples,
+                    )
+                    recorder.record_features(window.window_id, features)
+                    recorder.record_prediction(
+                        window_id=window.window_id,
+                        prediction=prediction,
+                        confidence=decision.confidence,
+                        inference_time_ms=infer_time * 1000.0,
+                        preprocessing_time_ms=preprocess_time * 1000.0,
+                        total_latency_ms=total * 1000.0,
+                        decision_time_ms=decision.decision_seconds * 1000.0,
+                        filtered_prediction=decision.filtered_prediction,
+                        stable_state=decision.stable_state,
+                        decision=decision.decision,
+                        decision_reason=decision.reason,
+                    )
 
-    print_summary(count, total_latency, total_preprocess, total_infer, decision_layer)
+                print_prediction_block(window.window_id, window.end_timestamp_ms, prediction, decision, preprocess_time, infer_time)
+    finally:
+        print_summary(count, total_latency, total_preprocess, total_infer, decision_layer)
+        if recorder:
+            recorder.finalize()
 
 
 def main() -> None:
@@ -161,6 +283,11 @@ def main() -> None:
     parser.add_argument("--window-size", type=float, default=2.0, help="Sliding window size in seconds")
     parser.add_argument("--overlap", type=float, default=0.5, help="Sliding window overlap fraction")
     parser.add_argument("--csv", default=None, help="Replay a recorded CSV instead of live serial input")
+    parser.add_argument("--debug-session", default=None, help="Write a full debug session bundle to this directory")
+    parser.add_argument("--participant", default="unknown", help="Participant identifier for debug metadata")
+    parser.add_argument("--session-id", default="unknown", help="Session identifier for debug metadata")
+    parser.add_argument("--sampling-rate", type=int, default=50, help="Sampling rate to record in debug metadata")
+    parser.add_argument("--duration", type=float, default=None, help="Optional auto-stop duration in seconds")
     parser.add_argument("--list-ports", action="store_true", help="List visible serial ports and exit")
     args = parser.parse_args()
 
@@ -171,10 +298,22 @@ def main() -> None:
     if not args.model:
         raise SystemExit("--model is required unless you use --list-ports")
 
+    recorder = None
+    if args.debug_session:
+        recorder = _create_recorder(
+            args.debug_session,
+            participant=args.participant,
+            session=args.session_id,
+            sampling_rate=args.sampling_rate,
+            window_size=args.window_size,
+            overlap=args.overlap,
+            model_path=args.model,
+        )
+
     if args.csv:
-        run_replay(args.model, Path(args.csv), args.window_size, args.overlap)
+        run_replay(args.model, Path(args.csv), args.window_size, args.overlap, duration=args.duration, recorder=recorder)
     else:
-        run_live(args.model, args.port, args.baud, args.window_size, args.overlap)
+        run_live(args.model, args.port, args.baud, args.window_size, args.overlap, duration=args.duration, recorder=recorder)
 
 
 if __name__ == "__main__":

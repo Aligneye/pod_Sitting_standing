@@ -43,6 +43,7 @@ Printed result
 - `live_predict.py`
   - Main entry point for live inference
   - Prints raw prediction, filtered prediction, stable state, reason, timings, and latency
+  - Can also record a full debug session with `--debug-session`
 
 - `decision_config.py`
   - Stores all decision-layer settings in one place
@@ -50,6 +51,10 @@ Printed result
 - `decision_layer.py`
   - Applies configurable post-model smoothing
   - Does not modify or retrain the ML model
+
+- `../live_debug/`
+  - Records raw samples, windows, features, and predictions
+  - Replays a recorded session and generates visual diagnostics
 
 ## Important design rule
 
@@ -121,3 +126,5 @@ python analysis/transition_classification/live/live_predict.py --model analysis/
 - CSV replay is useful for testing the live pipeline before using hardware.
 - The preprocessing here is intentionally the same as training: same interpolation path, same feature layout, same normalization behavior.
 - Confidence thresholding works best with models that support `predict_proba`, such as Logistic Regression and Random Forest.
+- For debugging, record a session with `--debug-session` and inspect the outputs in `analysis/transition_classification/live_debug/`.
+- For short captures, add `--duration 60` to stop automatically after about a minute; `Ctrl+C` still works as an emergency stop.
