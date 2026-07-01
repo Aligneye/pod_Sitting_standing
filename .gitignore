@@ -54,6 +54,8 @@ desktop.ini
 # Generated analysis outputs
 # These can be recreated from the raw datasets, so we do not need them in git.
 plots/
+debug/
+reports/
 analysis/transition_alignment/*.html
 analysis/transition_alignment/*.csv
 analysis/transition_alignment/*.md
@@ -80,6 +82,7 @@ analysis/transition_classification/__pycache__/
 analysis/transition_classification/**/*.csv
 analysis/transition_classification/**/*.png
 analysis/transition_classification/**/*.json
+analysis/event_analysis/reports/
 
 # Legacy transition overlay outputs
 # These visualizations are reproducible from the raw session CSVs.

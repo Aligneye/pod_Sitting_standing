@@ -9,6 +9,7 @@ Continuous Accelerometer Stream
 -> Movement Detector
 -> Transition Window Extractor
 -> Context Window Builder
+-> Orientation Validator
 -> Feature Extraction
 -> Transition Classifier
 -> Fire One Event
@@ -34,8 +35,9 @@ to export transition classifiers.
 - 5-fold cross validation
 - Transition-level samples only
 - No neural networks
-- Event-detection skeleton only; movement detection and transition extraction
-  algorithms are intentionally not implemented yet
+- Phase 1 event extraction is implemented with simple threshold-based movement
+  detection
+- Classifier integration remains intentionally out of scope for Phase 1
 
 ## Folder Structure
 
@@ -72,8 +74,26 @@ New structural modules:
 - `event_detection/pipeline.py`: coordinates the complete flow and fires one
   event.
 
-These modules are intentionally skeletal. They create the architecture for the
-next phase without introducing new algorithms or retraining anything.
+Phase 1 implements simple movement/event extraction. Phase 2 adds orientation
+validation to reject false-positive movement events before ML. Neither phase
+modifies the classifier, feature extractor, training code, firmware, or
+datasets.
+
+Completed event windows are written to `debug/events/` for visual validation.
+Each event folder includes raw samples, metadata, a self-describing
+`event_summary.json`, and an interactive Plotly plot.
+
+Rejected candidate events are written to `debug/rejected_events/` with the same
+artifact set and a validation reason.
+
+Event folders also include diagnostic combined STD plots and a rolling combined
+STD overlay. These are analysis-only experiments and are not used for filtering.
+
+Analyze event statistics with:
+
+```bash
+python analysis/event_analysis/analyze_events.py
+```
 
 ## Archived Continuous Classification
 
